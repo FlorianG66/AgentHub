@@ -6,6 +6,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "AIAgents SaaS Platform"
     API_V1_STR: str = "/api"
     DATABASE_URL: str = "sqlite+aiosqlite:///./platform.db"
+
+    # Authentification JWT
+    SECRET_KEY: str = "dev-secret-key-change-moi-en-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12  # 12 heures
     
     # Configuration LLM (Optionnelle - un moteur de simulation intelligent prend le relais si non renseigné)
     OPENAI_API_KEY: str = ""

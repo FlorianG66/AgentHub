@@ -4,11 +4,14 @@ from sqlalchemy import select
 from app.models.tenant import Tenant
 from app.models.agent import Agent
 from app.models.knowledge import KnowledgeDoc
+from app.models.user import User
+from app.core.security import hash_password
 
 async def init_db_data(db: AsyncSession):
-    """Initialise les entreprises tests et l'équipe d'agents par défaut si la base est vide."""
+    """Initialise les entreprises tests, l'équipe d'agents par défaut et les comptes utilisateurs."""
     tenant_res = await db.execute(select(Tenant))
     if tenant_res.scalars().first():
+        await ensure_seed_users(db)
         return  # Base déjà initialisée
 
     # 1. Création de l'unique entreprise initiale (Tenant)
@@ -109,4 +112,36 @@ async def init_db_data(db: AsyncSession):
         )
     ]
     db.add_all(docs)
+
+    await ensure_seed_users(db)
     await db.commit()
+
+
+async def ensure_seed_users(db: AsyncSession):
+    """Crée les comptes de démonstration (super-admin + admin du tenant) s'ils n'existent pas encore."""
+    existing = await db.execute(select(User.email))
+    emails = {r[0] for r in existing.all()}
+
+    users = []
+    if "admin@agenthub.local" not in emails:
+        users.append(User(
+            id="user-admin",
+            tenant_id=None,
+            email="admin@agenthub.local",
+            full_name="Super Admin Plateforme",
+            hashed_password=hash_password("admin123"),
+            role="super_admin",
+        ))
+    if "contact@boulangerie.com" not in emails:
+        users.append(User(
+            id="user-boulangerie",
+            tenant_id="tenant-boulangerie",
+            email="contact@boulangerie.com",
+            full_name="Morgan (Gérante)",
+            hashed_password=hash_password("client123"),
+            role="client_admin",
+        ))
+
+    if users:
+        db.add_all(users)
+        await db.commit()

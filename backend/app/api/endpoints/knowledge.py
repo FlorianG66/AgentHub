@@ -6,20 +6,32 @@ from typing import List
 
 from app.core.database import get_db
 from app.models.knowledge import KnowledgeDoc
+from app.models.user import User
 from app.schemas.knowledge import KnowledgeResponse, KnowledgeCreate
+from app.api.deps import get_current_user, authorize_tenant, authorize_resource
 
 router = APIRouter()
 
 @router.get("", response_model=List[KnowledgeResponse])
-async def list_knowledge_docs(tenant_id: str = Query(...), db: AsyncSession = Depends(get_db)):
+async def list_knowledge_docs(
+    tenant_id: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Documents de connaissances enregistrés pour l'entreprise."""
+    authorize_tenant(user, tenant_id)
     stmt = select(KnowledgeDoc).where(KnowledgeDoc.tenant_id == tenant_id)
     res = await db.execute(stmt)
     return res.scalars().all()
 
 @router.post("", response_model=KnowledgeResponse)
-async def create_knowledge_doc(payload: KnowledgeCreate, db: AsyncSession = Depends(get_db)):
+async def create_knowledge_doc(
+    payload: KnowledgeCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Ajout d'un document ou guide à la base de connaissances."""
+    authorize_tenant(user, payload.tenant_id)
     doc_id = payload.id or f"doc_{uuid.uuid4().hex[:8]}"
     doc = KnowledgeDoc(
         id=doc_id,
@@ -34,10 +46,15 @@ async def create_knowledge_doc(payload: KnowledgeCreate, db: AsyncSession = Depe
     return doc
 
 @router.delete("/{doc_id}")
-async def delete_knowledge_doc(doc_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_knowledge_doc(
+    doc_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     doc = await db.get(KnowledgeDoc, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document introuvable.")
+    authorize_resource(user, doc.tenant_id)
     await db.delete(doc)
     await db.commit()
     return {"message": "Document supprimé avec succès."}

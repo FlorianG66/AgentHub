@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -59,7 +59,13 @@ class AgentRouter:
             },
         ]
 
-    async def pick_best_agent(self, db: AsyncSession, tenant_id: str, prompt: str) -> Agent:
+    async def pick_best_agent(
+        self,
+        db: AsyncSession,
+        tenant_id: str,
+        prompt: str,
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> Agent:
         """Sélectionne l'agent le plus adapté à la mission."""
         agents_res = await db.execute(select(Agent).where(Agent.tenant_id == tenant_id))
         agents: List[Agent] = agents_res.scalars().all()
@@ -72,7 +78,7 @@ class AgentRouter:
             return keyword_agent
 
         # Étape 2 : Routage sémantique par IA (désambiguïsation)
-        routed_id = await self._route_with_llm(db, tenant_id, agents, prompt)
+        routed_id = await self._route_with_llm(db, tenant_id, agents, prompt, history)
         if routed_id:
             for a in agents:
                 if a.id == routed_id:
@@ -90,7 +96,8 @@ class AgentRouter:
         db: AsyncSession,
         tenant_id: str,
         agents: List[Agent],
-        prompt: str
+        prompt: str,
+        history: Optional[List[Dict[str, str]]] = None
     ) -> Optional[str]:
         tenant = await db.get(Tenant, tenant_id)
         tenant_settings = tenant.settings if tenant else {}
@@ -107,9 +114,25 @@ class AgentRouter:
             f"Équipe disponible :\n{roster}"
         )
         try:
+            context_block = ""
+            if history:
+                rendered = []
+                for msg in history[-10:]:
+                    role = msg.get("role", "user")
+                    content = str(msg.get("content", "")).strip()
+                    if not content:
+                        continue
+                    if role == "assistant":
+                        rendered.append(f"Agent IA : {content}")
+                    elif role == "system":
+                        rendered.append(content)
+                    else:
+                        rendered.append(f"Utilisateur : « {content} »")
+                if rendered:
+                    context_block = "Contexte de la conversation précédente :\n" + "\n".join(rendered) + "\n\n"
             reply = await llm_service.generate(
                 system_prompt=system_prompt,
-                user_prompt=f"Demande de l'utilisateur : « {prompt} »\nQuel agent doit la réaliser ?",
+                user_prompt=f"{context_block}Demande de l'utilisateur : « {prompt} »\nQuel agent doit la réaliser ?",
                 tenant_settings=tenant_settings,
                 temperature=0.2
             )

@@ -30,6 +30,7 @@ class TaskRunRequest(BaseModel):
 
 class TaskChatRequest(BaseModel):
     prompt: str
+    history: Optional[List[Dict[str, str]]] = None
 
 class TaskChatResponse(BaseModel):
     task: TaskResponse

@@ -15,6 +15,15 @@ class AgentCreate(AgentBase):
     id: Optional[str] = None
     tenant_id: str
 
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    avatar: Optional[str] = None
+    bio: Optional[str] = None
+    system_prompt: Optional[str] = None
+    capabilities: Optional[List[str]] = None
+    status: Optional[str] = None
+
 class AgentResponse(AgentBase):
     id: str
     tenant_id: str

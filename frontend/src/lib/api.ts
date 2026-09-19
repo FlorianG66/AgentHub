@@ -71,18 +71,56 @@ export interface KnowledgeDoc {
   created_at: string;
 }
 
+export interface AuthUser {
+  id: string;
+  tenant_id?: string | null;
+  email: string;
+  full_name: string;
+  role: "super_admin" | "client_admin" | "user";
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+  tenant?: {
+    id: string;
+    name: string;
+    slug?: string;
+    plan?: string;
+    settings?: Record<string, unknown>;
+  } | null;
+}
+
+// Gestion du jeton d'accès (localStorage)
+const TOKEN_KEY = "agenthub_token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
 // Client API
 export async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   });
 
   if (!res.ok) {
     const errorText = await res.text();
+    if (res.status === 401) setToken(null);
     throw new Error(`API Error [${res.status}]: ${errorText}`);
   }
 
@@ -92,6 +130,16 @@ export async function apiFetch<T>(endpoint: string, options?: RequestInit): Prom
 export const api = {
   // Santé du backend
   checkHealth: () => fetch("http://127.0.0.1:8000/health").then((r) => r.json()),
+
+  // Authentification
+  login: (email: string, password: string) =>
+    apiFetch<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () =>
+    apiFetch<{ user: AuthUser; tenant?: LoginResponse["tenant"] | null }>("/auth/me"),
+  logout: () => setToken(null),
 
   // Tenants (Multi-tenant & Super-admin)
   getTenants: () => apiFetch<Tenant[]>("/tenants"),
@@ -109,6 +157,19 @@ export const api = {
     system_prompt: string;
     capabilities: string[];
   }) => apiFetch<Agent>("/agents", { method: "POST", body: JSON.stringify(data) }),
+  updateAgent: (
+    agentId: string,
+    data: {
+      name: string;
+      role: string;
+      avatar: string;
+      bio: string;
+      system_prompt: string;
+      capabilities: string[];
+      status?: string;
+    }
+  ) =>
+    apiFetch<Agent>(`/agents/${agentId}`, { method: "PUT", body: JSON.stringify(data) }),
 
   // Missions / Tâches
   getTasks: (tenantId: string) => apiFetch<Task[]>(`/tasks?tenant_id=${tenantId}`),
@@ -117,10 +178,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ primary_agent_id: primaryAgentId, prompt }),
     }),
-  routeTask: (tenantId: string, prompt: string) =>
+  routeTask: (
+    tenantId: string,
+    prompt: string,
+    history?: { role: "user" | "assistant" | "system"; content: string }[]
+  ) =>
     apiFetch<{ task: Task; agent: Agent }>(`/tasks/chat?tenant_id=${tenantId}`, {
       method: "POST",
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, history }),
     }),
 
   // File de Validation (Human-in-the-Loop)

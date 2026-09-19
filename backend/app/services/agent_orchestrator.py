@@ -19,13 +19,35 @@ class AgentOrchestrator:
     et peut les solliciter pour accomplir une mission complexe selon sa spécialité.
     """
 
+    @staticmethod
+    def format_history(history: Optional[List[Dict[str, str]]]) -> str:
+        """Transforme l'historique de la discussion en bloc de contexte lisible."""
+        if not history:
+            return ""
+        rendered = []
+        for msg in history[-20:]:
+            role = msg.get("role", "user")
+            content = str(msg.get("content", "")).strip()
+            if not content:
+                continue
+            if role == "assistant":
+                rendered.append(f"Agent IA : {content}")
+            elif role == "system":
+                rendered.append(content)
+            else:
+                rendered.append(f"Utilisateur : « {content} »")
+        if not rendered:
+            return ""
+        return "Historique de la discussion (contexte à respecter) :\n" + "\n".join(rendered)
+
     async def execute_task(
         self,
         db: AsyncSession,
         tenant_id: str,
         primary_agent_id: str,
         prompt: str,
-        title: str = "Mission collaborative"
+        title: str = "Mission collaborative",
+        history: Optional[List[Dict[str, str]]] = None
     ) -> Task:
         # Récupération du tenant (pour la configuration IA personnalisée)
         tenant = await db.get(Tenant, tenant_id)
@@ -83,7 +105,11 @@ class AgentOrchestrator:
         )
 
         # 3. Récupération du contexte documentaire d'entreprise (RAG)
-        company_knowledge = await knowledge_service.get_relevant_context(db, tenant_id, prompt)
+        history_context = self.format_history(history)
+        rag_query = prompt
+        if history_context:
+            rag_query = f"{history_context}\n\nNouvelle demande : {prompt}"
+        company_knowledge = await knowledge_service.get_relevant_context(db, tenant_id, rag_query)
         add_log(
             agent_name=primary_agent.name,
             avatar=primary_agent.avatar,
@@ -186,7 +212,8 @@ class AgentOrchestrator:
         )
 
         final_prompt = (
-            f"Demande de l'utilisateur : « {prompt} »\n\n"
+            (f"{history_context}\n\n" if history_context else "")
+            + f"Demande de l'utilisateur : « {prompt} »\n\n"
             f"Base de connaissances de l'entreprise (à respecter) :\n{company_knowledge}\n\n"
             + (f"Apports et échanges avec tes collègues :\n" + "\n\n".join(peer_insights) + "\n\n" if peer_insights else "")
             + f"Rédige ta réponse complète et soignée en tant que {primary_agent.name} ({primary_agent.role})."

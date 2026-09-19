@@ -5,7 +5,9 @@ from typing import Optional, Dict, Any
 
 from app.core.database import get_db
 from app.models.tenant import Tenant
+from app.models.user import User
 from app.services.llm_service import llm_service
+from app.api.deps import get_current_user, authorize_tenant
 
 router = APIRouter()
 
@@ -22,8 +24,13 @@ class TestLLMPayload(BaseModel):
     model: Optional[str] = ""
 
 @router.get("")
-async def get_settings(tenant_id: str = Query(...), db: AsyncSession = Depends(get_db)):
+async def get_settings(
+    tenant_id: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Récupère la configuration IA du tenant."""
+    authorize_tenant(user, tenant_id)
     tenant = await db.get(Tenant, tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant introuvable.")
@@ -60,9 +67,11 @@ async def get_settings(tenant_id: str = Query(...), db: AsyncSession = Depends(g
 async def update_settings(
     payload: LLMSettingsPayload,
     tenant_id: str = Query(...),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Enregistre la configuration IA de l'entreprise."""
+    authorize_tenant(user, tenant_id)
     tenant = await db.get(Tenant, tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant introuvable.")

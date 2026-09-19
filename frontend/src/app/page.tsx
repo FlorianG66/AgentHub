@@ -15,13 +15,14 @@ import {
   Building2,
   RefreshCw,
   Cpu,
-  Layers,
   Share2,
   Sliders,
   Key,
   Check,
   Zap,
   MessageSquare,
+  LogOut,
+  Pencil,
 } from "lucide-react";
 import {
   api,
@@ -30,7 +31,11 @@ import {
   Task,
   ApprovalRequest,
   KnowledgeDoc,
+  AuthUser,
+  getToken,
+  setToken,
 } from "@/lib/api";
+import LoginScreen from "@/components/LoginScreen";
 
 interface ChatMessage {
   id: string;
@@ -46,13 +51,20 @@ interface ChatMessage {
 export default function Home() {
   // Navigation
   const [activeTab, setActiveTab] = useState<
-    "office" | "collaboration" | "approvals" | "knowledge" | "settings" | "architecture"
+    "office" | "collaboration" | "approvals" | "knowledge" | "settings"
   >("office");
 
   // State multi-tenant
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [activeTenantId, setActiveTenantId] = useState<string>("tenant-boulangerie");
-  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(true);
+
+  // Authentification
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [loginError, setLoginError] = useState<string>("");
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
+  const [clientTenant, setClientTenant] = useState<Tenant | null>(null);
+  const isSuperAdmin = authUser?.role === "super_admin";
 
   // Données courantes
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -101,6 +113,17 @@ export default function Home() {
     content: "",
   });
 
+  // Modale modification d'agent
+  const [editAgent, setEditAgent] = useState<Agent | null>(null);
+  const [editingAgentForm, setEditingAgentForm] = useState({
+    name: "",
+    role: "",
+    avatar: "",
+    bio: "",
+    system_prompt: "",
+    capabilities: "",
+  });
+
   // Chat de groupe (Bureau Virtuel)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState<string>("");
@@ -114,6 +137,38 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, chatLoading, chatStatus]);
 
+  // Restauration de la session (jeton JWT présent)
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+    api
+      .me()
+      .then((res) => {
+        setAuthUser(res.user);
+        if (res.user.role !== "super_admin" && res.tenant) {
+          const t: Tenant = {
+            id: res.tenant.id,
+            name: res.tenant.name || res.tenant.slug || "",
+            slug: res.tenant.slug || res.tenant.id,
+            plan: res.tenant.plan || "starter",
+            created_at: "",
+          };
+          setClientTenant(t);
+          setActiveTenantId(t.id);
+        } else {
+          setClientTenant(null);
+        }
+      })
+      .catch(() => {
+        setToken(null);
+        setAuthUser(null);
+      })
+      .finally(() => setAuthLoading(false));
+  }, []);
+
   // Chargement initial des données
   const loadData = useCallback(async (tenantId: string) => {
     try {
@@ -126,8 +181,8 @@ export default function Home() {
         setBackendOnline(false);
       }
 
-      // Chargement des tenants
-      const fetchedTenants = await api.getTenants();
+      // Chargement des tenants (réservé au super-admin)
+      const fetchedTenants = authUser?.role === "super_admin" ? await api.getTenants() : [];
       setTenants(fetchedTenants);
 
       // Chargement pour le tenant actif
@@ -168,7 +223,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authUser]);
 
   // Tester la connexion IA
   const handleTestLLM = async () => {
@@ -215,8 +270,8 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadData(activeTenantId);
-  }, [activeTenantId, loadData]);
+    if (authUser) loadData(activeTenantId);
+  }, [activeTenantId, loadData, authUser]);
 
   // Déclencher une mission collaborative
   const handleLaunchMission = async (customPrompt?: string, agentId?: string) => {
@@ -267,7 +322,15 @@ export default function Home() {
     setChatStatus("L'équipe analyse votre demande et sélectionne l'agent le plus compétent...");
 
     try {
-      const res = await api.routeTask(activeTenantId, text);
+      const history = chatMessages
+        .filter((m) => m.type === "user" || m.type === "agent")
+        .slice(-20)
+        .map((m) => ({
+          role: m.type === "user" ? ("user" as const) : ("assistant" as const),
+          content: m.content,
+        }));
+
+      const res = await api.routeTask(activeTenantId, text, history);
       const agent = res.agent;
       const task = res.task;
 
@@ -406,7 +469,100 @@ export default function Home() {
   };
 
   const pendingApprovalsCount = approvals.filter((a) => a.status === "pending").length;
-  const currentTenant = tenants.find((t) => t.id === activeTenantId);
+  const currentTenant = tenants.find((t) => t.id === activeTenantId) || clientTenant;
+
+  // Connexion
+  const handleLogin = async (email: string, password: string) => {
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      const res = await api.login(email, password);
+      setToken(res.access_token);
+      setAuthUser(res.user);
+      if (res.user.role !== "super_admin" && res.tenant) {
+        const t: Tenant = {
+          id: res.tenant.id,
+          name: res.tenant.name || res.tenant.slug || "",
+          slug: res.tenant.slug || res.tenant.id,
+          plan: res.tenant.plan || "starter",
+          created_at: "",
+        };
+        setClientTenant(t);
+        setActiveTenantId(t.id);
+      } else {
+        setClientTenant(null);
+      }
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : "Identifiants invalides.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // Déconnexion
+  const handleLogout = () => {
+    api.logout();
+    setAuthUser(null);
+    setClientTenant(null);
+    setActiveTask(null);
+  };
+
+  // Ouverture de la modale de modification d'agent
+  const openEditModal = (agent: Agent) => {
+    setEditAgent(agent);
+    setEditingAgentForm({
+      name: agent.name,
+      role: agent.role,
+      avatar: agent.avatar,
+      bio: agent.bio || "",
+      system_prompt: agent.system_prompt || "",
+      capabilities: (agent.capabilities || []).join(", "),
+    });
+  };
+
+  // Enregistrement des modifications d'un agent
+  const handleSubmitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editAgent) return;
+    try {
+      await api.updateAgent(editAgent.id, {
+        name: editingAgentForm.name,
+        role: editingAgentForm.role,
+        avatar: editingAgentForm.avatar,
+        bio: editingAgentForm.bio,
+        system_prompt: editingAgentForm.system_prompt,
+        capabilities: editingAgentForm.capabilities
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean),
+      });
+      setEditAgent(null);
+      const updatedAgents = await api.getAgents(activeTenantId);
+      setAgents(updatedAgents);
+    } catch (err) {
+      console.error("Erreur lors de la modification de l'agent:", err);
+    }
+  };
+
+  // Écran de chargement pendant la restauration de session
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <Cpu className="w-6 h-6 text-white" />
+        </div>
+        <div className="text-xs text-slate-500 flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+          <span>Restauration de votre session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Écran de connexion
+  if (!authUser) {
+    return <LoginScreen onLogin={handleLogin} loading={loginLoading} error={loginError} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -433,24 +589,26 @@ export default function Home() {
 
         {/* Super-Admin Tenant Switcher */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs shadow-inner">
-            <Building2 className="w-4 h-4 text-amber-400" />
-            <span className="text-slate-400">Espace Client :</span>
-            <select
-              value={activeTenantId}
-              onChange={(e) => {
-                setActiveTenantId(e.target.value);
-                setActiveTask(null);
-              }}
-              className="bg-transparent font-semibold text-slate-200 focus:outline-none cursor-pointer"
-            >
-              {tenants.map((t) => (
-                <option key={t.id} value={t.id} className="bg-slate-900 text-white">
-                  {t.name} ({t.plan.toUpperCase()})
-                </option>
-              ))}
-            </select>
-          </div>
+          {isSuperAdmin && (
+            <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs shadow-inner">
+              <Building2 className="w-4 h-4 text-amber-400" />
+              <span className="text-slate-400">Espace Client :</span>
+              <select
+                value={activeTenantId}
+                onChange={(e) => {
+                  setActiveTenantId(e.target.value);
+                  setActiveTask(null);
+                }}
+                className="bg-transparent font-semibold text-slate-200 focus:outline-none cursor-pointer"
+              >
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id} className="bg-slate-900 text-white">
+                    {t.name} ({t.plan.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <span
@@ -463,17 +621,31 @@ export default function Home() {
             </span>
           </div>
 
+          {isSuperAdmin ? (
+            <div
+              title="Administrateur de la plateforme"
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border bg-amber-500/10 border-amber-500/30 text-amber-400"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Super Admin</span>
+            </div>
+          ) : (
+            <div
+              title={clientTenant?.name || "Client"}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Espace {clientTenant?.name || "Client"}</span>
+            </div>
+          )}
+
           <button
-            onClick={() => setIsSuperAdmin(!isSuperAdmin)}
-            title="Cliquer pour activer/désactiver le mode Super-Admin"
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition ${
-              isSuperAdmin
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                : "bg-slate-800 border-slate-700 text-slate-400"
-            }`}
+            onClick={handleLogout}
+            title="Se déconnecter"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-slate-800 hover:bg-rose-600/20 border border-slate-700 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 transition"
           >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>{isSuperAdmin ? "Mode Super Admin Actif" : "Mode Client"}</span>
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{authUser?.full_name || authUser?.email}</span>
           </button>
         </div>
       </header>
@@ -547,18 +719,6 @@ export default function Home() {
             <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono">
               {llmSettings.provider === "free" ? "IA Gratuite" : llmSettings.provider.toUpperCase()}
             </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("architecture")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === "architecture"
-                ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/30"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-            }`}
-          >
-            <Layers className="w-4 h-4 text-purple-400" />
-            <span>Architecture & Code Expliqué</span>
           </button>
         </nav>
       </div>
@@ -819,6 +979,13 @@ export default function Home() {
                           Prêt à collaborer
                         </span>
                       </div>
+                      <button
+                        onClick={() => openEditModal(agent)}
+                        title={`Modifier ${agent.name}`}
+                        className="ml-auto text-slate-500 hover:text-indigo-400 hover:bg-slate-800 p-2 rounded-lg transition"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                     </div>
 
                     <p className="text-xs text-slate-300 line-clamp-3 mb-4 leading-relaxed">
@@ -858,22 +1025,7 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Guide d'intégration dynamique */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex items-start gap-4">
-              <div className="p-3 bg-indigo-500/10 rounded-lg border border-indigo-500/20 text-indigo-400">
-                <Bot className="w-6 h-6" />
-              </div>
-              <div className="text-sm">
-                <h4 className="font-semibold text-white">Collaboration dynamique sans binôme fixe</h4>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Lorsque vous confiez une mission à un agent (par exemple Léa, Community Manager), celle-ci
-                  analyse les compétences requises. Si des chiffres ou des données sont nécessaires, elle interroge
-                  dynamiquement Marc (Analyste) via notre bus inter-agents. Si vous recrutez un nouvel agent
-                  (ex: Juriste ou Comptable), les autres agents apprendront automatiquement à le solliciter !
-                </p>
-              </div>
             </div>
-          </div>
         )}
 
         {/* TAB 2 : HUB DE COLLABORATION & MISSIONS EN DIRECT */}
@@ -1628,80 +1780,111 @@ export default function Home() {
           </div>
         )}
 
-        {/* TAB 6 : ARCHITECTURE & CODE EXPLIQUÉ (PÉDAGOGIE) */}
-        {activeTab === "architecture" && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Layers className="w-5 h-5 text-purple-400" />
-                <span>Guide Pédagogique : Comment fonctionne cette plateforme ?</span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">
-                Conçu pas à pas pour que vous puissiez comprendre, répliquer et maintenir vous-même chaque brique.
-              </p>
+        </main>
+
+      {/* MODALE MODIFICATION D'AGENT */}
+      {editAgent && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-indigo-400" />
+                <span>Modifier {editAgent.name}</span>
+              </h3>
+              <button
+                onClick={() => setEditAgent(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                <div className="text-indigo-400 font-bold uppercase tracking-wider">
-                  1. Multi-Tenant & Super-Admin
-                </div>
-                <p className="text-slate-300 leading-relaxed">
-                  Chaque entreprise cliente a un identifiant unique (<code>tenant_id</code>). 
-                  Toutes les tables SQLite/PostgreSQL (<code>agents</code>, <code>tasks</code>, <code>knowledge_docs</code>)
-                  sont cloisonnées par ce <code>tenant_id</code>.
-                </p>
-                <p className="text-slate-400">
-                  En tant que Super-Admin, vous pouvez inspecter et intervenir sur n&apos;importe quelle entreprise depuis le sélecteur du haut.
-                </p>
+            <form onSubmit={handleSubmitEdit} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Prénom de l&apos;agent</label>
+                <input
+                  type="text"
+                  required
+                  value={editingAgentForm.name}
+                  onChange={(e) => setEditingAgentForm({ ...editingAgentForm, name: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
               </div>
 
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                <div className="text-amber-400 font-bold uppercase tracking-wider">
-                  2. Collaboration Dynamique
-                </div>
-                <p className="text-slate-300 leading-relaxed">
-                  Pas de binôme figé dans le code. Chaque agent déclare ses <code>capabilities</code> (ex: <code>[&apos;data_analysis&apos;, &apos;reporting&apos;]</code>).
-                </p>
-                <p className="text-slate-400">
-                  L&apos;orchestrateur (<code>AgentOrchestrator</code>) analyse la mission, détecte les compétences requises et sollicite l&apos;agent correspondant via un bus d&apos;échanges.
-                </p>
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Rôle / Métier</label>
+                <input
+                  type="text"
+                  required
+                  value={editingAgentForm.role}
+                  onChange={(e) => setEditingAgentForm({ ...editingAgentForm, role: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
               </div>
 
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                <div className="text-emerald-400 font-bold uppercase tracking-wider">
-                  3. Human-in-the-Loop & Outils
-                </div>
-                <p className="text-slate-300 leading-relaxed">
-                  Les agents préparent le travail mais ne publient jamais en direct sur vos comptes réels sans autorisation.
-                </p>
-                <p className="text-slate-400">
-                  Ils créent une <code>ApprovalRequest</code>. C&apos;est vous (ou le client PME) qui validez en un clic.
-                </p>
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Photo / Avatar URL</label>
+                <input
+                  type="text"
+                  value={editingAgentForm.avatar}
+                  onChange={(e) => setEditingAgentForm({ ...editingAgentForm, avatar: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
               </div>
-            </div>
 
-            <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-3">
-              <h4 className="font-bold text-sm text-white">Arborescence simplifiée du code</h4>
-              <pre className="text-[11px] font-mono text-slate-300 bg-slate-900/90 p-4 rounded-lg overflow-x-auto leading-loose">
-{`backend/
-├── app/
-│   ├── core/           # Configuration (.env) & Connexion SQLite/PostgreSQL
-│   ├── models/         # Tables de la base (Tenant, Agent, Task, Approval, Knowledge)
-│   ├── schemas/        # Schémas Pydantic (validation des requêtes HTTP)
-│   ├── services/
-│   │   ├── agent_orchestrator.py # Le chef d'orchestre multi-agents
-│   │   ├── llm_service.py        # Appel OpenAI ou Moteur de simulation
-│   │   └── tools/                # Connecteurs LinkedIn & Statistiques
-│   └── api/endpoints/  # Routes FastAPI (/agents, /tasks, /approvals, /knowledge)
-frontend/
-├── src/lib/api.ts      # Client TypeScript pour interroger le backend
-└── src/app/page.tsx    # Dashboard complet avec Tailwind & Lucide`}
-              </pre>
-            </div>
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">
+                  Compétences clés (séparées par des virgules)
+                </label>
+                <input
+                  type="text"
+                  value={editingAgentForm.capabilities}
+                  onChange={(e) => setEditingAgentForm({ ...editingAgentForm, capabilities: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Bio / Présentation</label>
+                <textarea
+                  rows={2}
+                  value={editingAgentForm.bio}
+                  onChange={(e) => setEditingAgentForm({ ...editingAgentForm, bio: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">
+                  Instructions système (system prompt)
+                </label>
+                <textarea
+                  rows={3}
+                  value={editingAgentForm.system_prompt}
+                  onChange={(e) => setEditingAgentForm({ ...editingAgentForm, system_prompt: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditAgent(null)}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg font-medium"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg font-semibold shadow"
+                >
+                  Enregistrer l&apos;agent
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-      </main>
+        </div>
+      )}
 
       {/* MODALE RECRUTEMENT D'AGENT */}
       {showRecruitModal && (

@@ -6,13 +6,20 @@ from typing import List
 
 from app.core.database import get_db
 from app.models.approval import ApprovalRequest
+from app.models.user import User
 from app.schemas.approval import ApprovalResponse, ApprovalDecision
+from app.api.deps import get_current_user, authorize_tenant, authorize_resource
 
 router = APIRouter()
 
 @router.get("", response_model=List[ApprovalResponse])
-async def list_approvals(tenant_id: str = Query(...), db: AsyncSession = Depends(get_db)):
+async def list_approvals(
+    tenant_id: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """File d'attente de validation humaine (Human-in-the-Loop)."""
+    authorize_tenant(user, tenant_id)
     stmt = (
         select(ApprovalRequest)
         .where(ApprovalRequest.tenant_id == tenant_id)
@@ -25,6 +32,7 @@ async def list_approvals(tenant_id: str = Query(...), db: AsyncSession = Depends
 async def process_decision(
     approval_id: str,
     decision: ApprovalDecision,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -34,6 +42,7 @@ async def process_decision(
     approval = await db.get(ApprovalRequest, approval_id)
     if not approval:
         raise HTTPException(status_code=404, detail="Demande d'approbation introuvable.")
+    authorize_resource(user, approval.tenant_id)
 
     if decision.action == "approve":
         approval.status = "approved"
