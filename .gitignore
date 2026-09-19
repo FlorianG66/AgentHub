@@ -16,10 +16,11 @@ frontend/.next/
 frontend/out/
 frontend/build
 
-# --- Environnements ---
+# --- Env & config outils ---
 .env
 .env.*
 !.env.example
+.opencode/
 
 # --- OS ---
 .DS_Store

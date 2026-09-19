@@ -7,6 +7,7 @@ interface LoginScreenProps {
   onLogin: (email: string, password: string) => Promise<void> | void;
   loading?: boolean;
   error?: string | null;
+  showDemoAccounts?: boolean;
 }
 
 const DEMO_ACCOUNTS = [
@@ -22,7 +23,7 @@ const DEMO_ACCOUNTS = [
   },
 ];
 
-export default function LoginScreen({ onLogin, loading, error }: LoginScreenProps) {
+export default function LoginScreen({ onLogin, loading, error, showDemoAccounts = true }: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -120,34 +121,36 @@ export default function LoginScreen({ onLogin, loading, error }: LoginScreenProp
             </form>
 
             {/* Comptes de démonstration */}
-            <div className="pt-1">
-              <div className="flex items-center gap-2 mb-2.5">
-                <div className="h-px flex-1 bg-slate-800" />
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">
-                  Comptes de démonstration
-                </span>
-                <div className="h-px flex-1 bg-slate-800" />
+            {showDemoAccounts && (
+              <div className="pt-1">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="h-px flex-1 bg-slate-800" />
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                    Comptes de démonstration
+                  </span>
+                  <div className="h-px flex-1 bg-slate-800" />
+                </div>
+                <div className="space-y-2">
+                  {DEMO_ACCOUNTS.map((acc) => (
+                    <button
+                      key={acc.email}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => {
+                        setEmail(acc.email);
+                        setPassword(acc.password);
+                      }}
+                      className="w-full text-left text-xs bg-slate-950/80 hover:bg-indigo-950/40 p-2.5 rounded-lg border border-slate-800 hover:border-indigo-500/40 text-slate-300 transition disabled:opacity-50"
+                    >
+                      <span className="font-semibold text-indigo-300">{acc.label}</span>
+                      <span className="block text-slate-500 mt-0.5 truncate">
+                        {acc.email} / {acc.password}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-2">
-                {DEMO_ACCOUNTS.map((acc) => (
-                  <button
-                    key={acc.email}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => {
-                      setEmail(acc.email);
-                      setPassword(acc.password);
-                    }}
-                    className="w-full text-left text-xs bg-slate-950/80 hover:bg-indigo-950/40 p-2.5 rounded-lg border border-slate-800 hover:border-indigo-500/40 text-slate-300 transition disabled:opacity-50"
-                  >
-                    <span className="font-semibold text-indigo-300">{acc.label}</span>
-                    <span className="block text-slate-500 mt-0.5 truncate">
-                      {acc.email} / {acc.password}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
 
           <p className="text-center text-xs text-slate-600 mt-6 flex items-center justify-center gap-1.5">

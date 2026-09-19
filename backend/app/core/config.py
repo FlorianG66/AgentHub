@@ -17,12 +17,13 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
     
-    # CORS (pour autoriser le frontend Next.js en local)
+    # CORS (frontend Next.js en local + tunnels de démonstration Cloudflare)
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
     ]
+    BACKEND_CORS_ORIGIN_REGEX: str = r"https://.*\.trycloudflare\.com"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

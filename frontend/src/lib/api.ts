@@ -1,4 +1,5 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_ORIGIN = typeof window !== "undefined" ? new URL(API_BASE).origin : "";
 
 export interface Tenant {
   id: string;
@@ -129,7 +130,7 @@ export async function apiFetch<T>(endpoint: string, options?: RequestInit): Prom
 
 export const api = {
   // Santé du backend
-  checkHealth: () => fetch("http://127.0.0.1:8000/health").then((r) => r.json()),
+  checkHealth: () => fetch(`${API_ORIGIN}/health`).then((r) => r.json()),
 
   // Authentification
   login: (email: string, password: string) =>
