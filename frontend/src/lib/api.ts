@@ -78,6 +78,8 @@ export interface AuthUser {
   email: string;
   full_name: string;
   role: "super_admin" | "client_admin" | "user";
+  is_active?: boolean;
+  created_at?: string;
 }
 
 export interface LoginResponse {
@@ -138,9 +140,50 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  register: (data: {
+    company_name: string;
+    full_name: string;
+    email: string;
+    password: string;
+  }) =>
+    apiFetch<LoginResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  forgotPassword: (email: string) =>
+    apiFetch<{
+      message: string;
+      reset_url?: string;
+      reset_token?: string;
+    }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (token: string, new_password: string) =>
+    apiFetch<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, new_password }),
+    }),
   me: () =>
     apiFetch<{ user: AuthUser; tenant?: LoginResponse["tenant"] | null }>("/auth/me"),
   logout: () => setToken(null),
+
+  // Utilisateurs / Invitations
+  getUsers: (tenantId: string) => apiFetch<AuthUser[]>(`/users?tenant_id=${tenantId}`),
+  inviteUser: (tenantId: string, data: { email: string; full_name: string; role: string }) =>
+    apiFetch<{ user: AuthUser; temporary_password: string }>(`/users/invite?tenant_id=${tenantId}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateUser: (
+    userId: string,
+    tenantId: string,
+    data: { role?: string; is_active?: boolean }
+  ) =>
+    apiFetch<AuthUser>(`/users/${userId}?tenant_id=${tenantId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
 
   // Tenants (Multi-tenant & Super-admin)
   getTenants: () => apiFetch<Tenant[]>("/tenants"),

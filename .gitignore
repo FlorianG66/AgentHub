@@ -9,6 +9,7 @@ backend/*.db-journal
 backend/*.db-wal
 backend/*.db-shm
 backend/.coverage
+backend/backups/
 
 # --- Node / Frontend ---
 frontend/node_modules/

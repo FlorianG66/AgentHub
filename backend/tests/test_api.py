@@ -1,3 +1,5 @@
+import time
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -223,3 +225,161 @@ def test_router_keyword_fallback_routes_to_hr():
     assert picked is not None
     assert picked.id == "agent-thomas"
     assert score >= 2
+
+# ---------------------------------------------------------------- Onboarding self-service
+
+def _unique_email(prefix="nouveau"):
+    return f"{prefix}-{int(time.time() * 1000)}@exemple.fr"
+
+@pytest.mark.asyncio
+async def test_register_creates_tenant_and_agents():
+    async with await make_client() as client:
+        email = _unique_email()
+        resp = await client.post("/api/auth/register", json={
+            "company_name": f"Partisserie Test {email.split('@')[0]}",
+            "full_name": "Lucie Martin",
+            "email": email,
+            "password": "motdepasse123",
+        })
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["access_token"]
+        assert data["user"]["role"] == "client_admin"
+        assert data["user"]["tenant_id"] == data["tenant"]["id"]
+
+        # L'espace est initialisé avec l'équipe par défaut (4 agents)
+        headers = auth_headers(data["access_token"])
+        agents = await client.get(f"/api/agents?tenant_id={data['tenant']['id']}", headers=headers)
+        assert agents.status_code == 200
+        assert len(agents.json()) == 4
+
+        # Le nouvel espace est totalement isolé
+        other = await client.get("/api/agents?tenant_id=tenant-boulangerie", headers=headers)
+        assert other.status_code == 403
+
+@pytest.mark.asyncio
+async def test_register_duplicate_email_rejected():
+    async with await make_client() as client:
+        email = _unique_email("dup")
+        payload = {
+            "company_name": "Entreprise Doublon",
+            "full_name": "Paul",
+            "email": email,
+            "password": "motdepasse123",
+        }
+        assert (await client.post("/api/auth/register", json=payload)).status_code == 201
+        assert (await client.post("/api/auth/register", json=payload)).status_code == 400
+
+@pytest.mark.asyncio
+async def test_register_weak_password_rejected():
+    async with await make_client() as client:
+        resp = await client.post("/api/auth/register", json={
+            "company_name": "Entreprise Securite",
+            "full_name": "Paul",
+            "email": _unique_email("sec"),
+            "password": "court",
+        })
+        assert resp.status_code == 422
+
+# ---------------------------------------------------------------- Invitation de collaborateurs
+
+@pytest.mark.asyncio
+async def test_invite_and_login_collaborator():
+    async with await make_client() as client:
+        tok = await get_access_token(client, *AB["client"])
+        h = auth_headers(tok)
+
+        resp = await client.post("/api/users/invite?tenant_id=tenant-boulangerie", headers=h, json={
+            "email": _unique_email("col"),
+            "full_name": "Anaïs Boulanger",
+            "role": "user",
+        })
+        assert resp.status_code == 201, resp.text
+        invited = resp.json()
+        assert invited["temporary_password"]
+        assert invited["user"]["role"] == "user"
+        assert invited["user"]["tenant_id"] == "tenant-boulangerie"
+
+        # Le collaborateur peut se connecter avec le mot de passe temporaire
+        login = await client.post("/api/auth/login", json={
+            "email": invited["user"]["email"],
+            "password": invited["temporary_password"],
+        })
+        assert login.status_code == 200
+        assert login.json()["user"]["role"] == "user"
+
+        # Listage des collaborateurs de l'espace
+        users = await client.get("/api/users?tenant_id=tenant-boulangerie", headers=h)
+        assert users.status_code == 200
+        emails = [u["email"] for u in users.json()]
+        assert invited["user"]["email"] in emails
+
+@pytest.mark.asyncio
+async def test_invite_requires_admin():
+    async with await make_client() as client:
+        # Un simple user ne peut pas inviter
+        admin_tok = await get_access_token(client, *AB["admin"])
+        inv = await client.post("/api/users/invite?tenant_id=tenant-boulangerie", headers=auth_headers(admin_tok), json={
+            "email": _unique_email("ville"),
+            "full_name": "Ville",
+            "role": "user",
+        })
+        assert inv.status_code == 201
+        user_tok = (await client.post("/api/auth/login", json={
+            "email": inv.json()["user"]["email"],
+            "password": inv.json()["temporary_password"],
+        })).json()["access_token"]
+
+        resp = await client.post("/api/users/invite?tenant_id=tenant-boulangerie",
+                                 headers=auth_headers(user_tok),
+                                 json={"email": _unique_email("non"), "full_name": "X", "role": "user"})
+        assert resp.status_code == 403
+
+# ---------------------------------------------------------------- Mot de passe oublié
+
+@pytest.mark.asyncio
+async def test_forgot_password_console_returns_token():
+    async with await make_client() as client:
+        resp = await client.post("/api/auth/forgot-password", json={
+            "email": "contact@boulangerie.com"
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reset_token"]
+        assert "/login?reset_token=" in data["reset_url"]
+
+@pytest.mark.asyncio
+async def test_reset_password_full_flow():
+    async with await make_client() as client:
+        # Nécessite un compte isolé pour ne pas casser le seed (client123)
+        reg = await client.post("/api/auth/register", json={
+            "company_name": "Reset Biz",
+            "full_name": "Jeanne",
+            "email": _unique_email("reset"),
+            "password": "ancien-mdp-123",
+        })
+        email = reg.json()["user"]["email"]
+
+        forgot = (await client.post("/api/auth/forgot-password", json={"email": email})).json()
+        token = forgot["reset_token"]
+
+        reset = await client.post("/api/auth/reset-password", json={
+            "token": token,
+            "new_password": "nouveau-mdp-456",
+        })
+        assert reset.status_code == 200
+
+        # L'ancien mot de passe ne fonctionne plus, le nouveau oui
+        old = await client.post("/api/auth/login", json={"email": email, "password": "ancien-mdp-123"})
+        assert old.status_code == 401
+        new = await client.post("/api/auth/login", json={"email": email, "password": "nouveau-mdp-456"})
+        assert new.status_code == 200
+
+@pytest.mark.asyncio
+async def test_reset_password_invalid_token():
+    async with await make_client() as client:
+        resp = await client.post("/api/auth/reset-password", json={
+            "token": "token-invalide",
+            "new_password": "nouveau-mdp-456",
+        })
+        assert resp.status_code == 400

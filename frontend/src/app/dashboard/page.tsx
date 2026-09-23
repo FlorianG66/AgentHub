@@ -24,6 +24,8 @@ import {
   MessageSquare,
   LogOut,
   Pencil,
+  UserPlus,
+  UserCog,
 } from "lucide-react";
 import {
   api,
@@ -53,7 +55,7 @@ export default function Home() {
 
   // Navigation
   const [activeTab, setActiveTab] = useState<
-    "office" | "collaboration" | "approvals" | "knowledge" | "settings"
+    "office" | "collaboration" | "approvals" | "knowledge" | "team" | "settings"
   >("office");
 
   // State multi-tenant
@@ -123,6 +125,13 @@ export default function Home() {
     system_prompt: "",
     capabilities: "",
   });
+
+  // Équipe / Invitations de collaborateurs
+  const [teamUsers, setTeamUsers] = useState<AuthUser[]>([]);
+  const [inviteForm, setInviteForm] = useState({ email: "", full_name: "", role: "user" });
+  const [inviteResult, setInviteResult] = useState<{ email: string; temporary_password: string } | null>(null);
+  const [teamNotice, setTeamNotice] = useState<string | null>(null);
+  const isTeamAdmin = authUser?.role === "client_admin" || authUser?.role === "super_admin";
 
   // Chat de groupe (Bureau Virtuel)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -200,6 +209,11 @@ export default function Home() {
       setApprovals(fetchedApprovals);
       setKnowledgeDocs(fetchedDocs);
 
+      // Chargement des collaborateurs (réservé aux admins de l'espace)
+      const canManageTeam = authUser?.role === "client_admin" || authUser?.role === "super_admin";
+      const fetchedUsers = canManageTeam ? await api.getUsers(tenantId).catch(() => []) : [];
+      setTeamUsers(fetchedUsers);
+
       if (fetchedSettings?.llm) {
         setLlmSettings((prev) => ({
           ...prev,
@@ -266,6 +280,34 @@ export default function Home() {
       alert("Erreur lors de l'enregistrement des paramètres.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Inviter un collaborateur
+  const handleInviteUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteForm.email.trim() || !inviteForm.full_name.trim()) return;
+    try {
+      setInviteResult(null);
+      setTeamNotice(null);
+      const res = await api.inviteUser(activeTenantId, inviteForm);
+      setInviteResult({ email: res.user.email, temporary_password: res.temporary_password });
+      setInviteForm({ email: "", full_name: "", role: "user" });
+      await loadData(activeTenantId);
+    } catch (err) {
+      setTeamNotice(err instanceof Error ? err.message : "Invitation impossible.");
+    }
+  };
+
+  // Activer / désactiver un collaborateur
+  const handleToggleUserActive = async (u: AuthUser) => {
+    try {
+      await api.updateUser(u.id, activeTenantId, { is_active: !u.is_active });
+      setTeamUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, is_active: !u.is_active } : x))
+      );
+    } catch (err) {
+      setTeamNotice(err instanceof Error ? err.message : "Mise à jour impossible.");
     }
   };
 
@@ -685,6 +727,20 @@ export default function Home() {
             <BookOpen className="w-4 h-4 text-sky-400" />
             <span>Base de Connaissances ({knowledgeDocs.length})</span>
           </button>
+
+          {isTeamAdmin && (
+            <button
+              onClick={() => setActiveTab("team")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeTab === "team"
+                  ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+              }`}
+            >
+              <UserCog className="w-4 h-4 text-pink-400" />
+              <span>Équipe & Accès ({teamUsers.length})</span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab("settings")}
@@ -1444,6 +1500,147 @@ export default function Home() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB : ÉQUIPE & ACCÈS */}
+        {activeTab === "team" && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <UserCog className="w-5 h-5 text-pink-400" />
+                  <span>Équipe & Accès</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Invitez vos collaborateurs dans l&apos;espace. Le mot de passe temporaire est
+                  affiché / envoyé une seule fois.
+                </p>
+              </div>
+            </div>
+
+            {/* Formulaire d'invitation */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+                <UserPlus className="w-4 h-4 text-pink-400" />
+                <span>Inviter un collaborateur</span>
+              </h3>
+              <form onSubmit={handleInviteUser} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input
+                  type="text"
+                  required
+                  value={inviteForm.full_name}
+                  onChange={(e) => setInviteForm({ ...inviteForm, full_name: e.target.value })}
+                  placeholder="Nom complet"
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-pink-500 placeholder:text-slate-500 transition"
+                />
+                <input
+                  type="email"
+                  required
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                  placeholder="collaborateur@entreprise.fr"
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-pink-500 placeholder:text-slate-500 transition"
+                />
+                <select
+                  value={inviteForm.role}
+                  onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-pink-500 transition"
+                >
+                  <option value="user">Membre</option>
+                  <option value="client_admin">Administrateur de l&apos;espace</option>
+                </select>
+                <button
+                  type="submit"
+                  className="flex items-center justify-center gap-2 bg-pink-600 hover:bg-pink-500 text-white font-medium text-sm px-4 py-2.5 rounded-lg shadow transition"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Inviter</span>
+                </button>
+              </form>
+
+              {inviteResult && (
+                <div className="mt-4 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs px-4 py-3 rounded-lg space-y-1">
+                  <p className="font-semibold">
+                    {inviteResult.email} a été invité — mot de passe temporaire :
+                  </p>
+                  <p className="font-mono text-base break-all select-all">
+                    {inviteResult.temporary_password}
+                  </p>
+                  <p className="text-amber-200/70">
+                    À communiquer au collaborateur s&apos;il ne l&apos;a pas reçu par e-mail
+                    (mode console).
+                  </p>
+                </div>
+              )}
+              {teamNotice && (
+                <div className="mt-4 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs px-4 py-3 rounded-lg">
+                  {teamNotice}
+                </div>
+              )}
+            </div>
+
+            {/* Liste des collaborateurs */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-800/50 border-b border-slate-800">
+                  <tr className="text-[11px] uppercase tracking-wider text-slate-400">
+                    <th className="px-5 py-3 font-semibold">Collaborateur</th>
+                    <th className="px-5 py-3 font-semibold">Rôle</th>
+                    <th className="px-5 py-3 font-semibold">Statut</th>
+                    <th className="px-5 py-3 font-semibold text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teamUsers.map((u) => (
+                    <tr key={u.id} className="border-b border-slate-800/60 last:border-0">
+                      <td className="px-5 py-3">
+                        <div className="text-sm font-medium text-white">{u.full_name}</div>
+                        <div className="text-xs text-slate-400">{u.email}</div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="text-[11px] px-2.5 py-0.5 rounded-full border border-slate-700 bg-slate-800 text-slate-300 font-medium">
+                          {u.role === "client_admin"
+                            ? "Admin espace"
+                            : u.role === "super_admin"
+                              ? "Super Admin"
+                              : "Membre"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        {u.is_active ? (
+                          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium">
+                            Actif
+                          </span>
+                        ) : (
+                          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium">
+                            Désactivé
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {u.role !== "super_admin" && (
+                          <button
+                            onClick={() => handleToggleUserActive(u)}
+                            title={u.is_active ? "Désactiver" : "Réactiver"}
+                            className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded-lg transition"
+                          >
+                            {u.is_active ? "Désactiver" : "Réactiver"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {teamUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-8 text-center text-sm text-slate-500">
+                        Aucun collaborateur pour le moment.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

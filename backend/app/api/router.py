@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends
 from app.api.deps import get_current_user, require_super_admin
-from app.api.endpoints import tenants, agents, tasks, approvals, knowledge, settings, auth
+from app.api.endpoints import tenants, agents, tasks, approvals, knowledge, settings, users, auth
 
 api_router = APIRouter()
 
 api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
+api_router.include_router(
+    users.router,
+    prefix="/users",
+    tags=["Users"],
+    dependencies=[Depends(get_current_user)],
+)
 api_router.include_router(
     tenants.router,
     prefix="/tenants",

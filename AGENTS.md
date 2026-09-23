@@ -3,7 +3,11 @@
 ## Démarrage
 - Tout démarrer : `powershell -File run_dev.ps1` (backend FastAPI sur http://127.0.0.1:8000 + frontend Next.js sur http://localhost:3000).
 - Backend : `backend\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000` (venv dans `backend\.venv`).
-- Base SQLite : `backend\platform.db` (créée automatiquement au démarrage). Comptes seedés par `backend\app\initial_data.py` : `admin@agenthub.local/admin123` (super_admin) et `contact@boulangerie.com/client123` (client_admin tenant-boulangerie).
+- Le backend lit `backend\.env` (copie de `backend\.env.example`). Ne jamais committer de secrets.
+- Mode production locale : `powershell -File scripts\run_prod.ps1` (migrations Alembic + build Next + uvicorn + `npm run start`).
+- Sauvegarde de la base : `powershell -File scripts\backup_db.ps1` (rotation 10 par défaut).
+- Migrations de schéma : se font via Alembic (`cd backend; .\.venv\Scripts\alembic.exe upgrade head`). Après un changement de modèle : `alembic revision --autogenerate -m "..."`.
+- Base SQLite : `backend\platform.db` (créée automatiquement au démarrage). Comptes seedés par `backend\app\initial_data.py` (valeurs surchargées via `.env`) : `admin@agenthub.local/admin123` (super_admin) et `contact@boulangerie.com/client123` (client_admin tenant-boulangerie).
 
 ## Lien public de visualisation (convention OBLIGATOIRE)
 Quand l'utilisateur demande un « lien de visu » :
@@ -15,5 +19,5 @@ Quand l'utilisateur demande un « lien de visu » :
 - cloudflared : `C:\Users\<user>\AppData\Local\cloudflared\cloudflared.exe`. CORS backend autorise `https://*.trycloudflare.com` via `BACKEND_CORS_ORIGIN_REGEX` (`frontend` peut donc appeler l'API tunnel).
 
 ## Vérifications avant de conclure
-- Backend : `cd backend; .\.venv\Scripts\python.exe -m pytest -q` (13 tests, ~2 min).
+- Backend : `cd backend; .\.venv\Scripts\python.exe -m pytest -q` (21 tests, ~2 min).
 - Frontend : `npm run build` dans `frontend` (vérifie types + lint).

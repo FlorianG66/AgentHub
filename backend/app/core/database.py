@@ -3,10 +3,25 @@ from sqlalchemy.orm import declarative_base
 
 from app.core.config import settings
 
+
+def _normalize_database_url(url: str) -> str:
+    """Convertit une URL PostgreSQL classique en URL pour driver async (asyncpg)."""
+    if "postgresql+asyncpg://" in url:
+        return url
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
+DATABASE_URL = _normalize_database_url(settings.DATABASE_URL)
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    DATABASE_URL,
     echo=False,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    connect_args={"check_same_thread": False} if IS_SQLITE else {}
 )
 
 AsyncSessionLocal = async_sessionmaker(

@@ -21,6 +21,12 @@ Plateforme SaaS permettant aux TPE & PME de recruter et piloter une **équipe vi
 
 ## Démarrage rapide
 
+Le backend lit sa configuration depuis `backend/.env`. Copiez le modèle puis adaptez les valeurs :
+
+```bash
+cp backend/.env.example backend/.env
+```
+
 ### Backend
 
 ```bash
@@ -29,7 +35,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-La base et les données de démonstration (tenants, agents, documents, comptes utilisateurs) sont initialisées automatiquement au premier démarrage.
+La base et les données de démonstration (tenants, agents, documents, comptes utilisateurs) sont initialisées automatiquement au premier démarrage. Les migrations de schéma sont gérées par **Alembic** (`alembic upgrade head`).
 
 ### Frontend
 
@@ -59,7 +65,7 @@ cd backend
 pytest
 ```
 
-La suite couvre l'authentification, le contrôle d'accès (isolation par tenant) et les parcours fonctionnels (agents, missions, approbations).
+La suite couvre l'authentification, le contrôle d'accès (isolation par tenant), les parcours fonctionnels (agents, missions, approbations) ainsi que les flux d'onboarding (inscription, invitation de collaborateurs, réinitialisation de mot de passe).
 
 ---
 
@@ -108,6 +114,19 @@ CORS : le backend accepte les origines `*.vercel.app` et `*.trycloudflare.com` (
 ---
 
 ## Dernières mises à jour
+
+### v0.3 — Fondations production (Sécurité, Migrations, Onboarding)
+
+- **Secrets déportés dans `.env`** : `SECRET_KEY`, mots de passe seedés, CORS, SMTP. Fichier `backend/.env.example` versionné (`.env` réel ignoré par git).
+- **Migrations de schéma avec Alembic** : `migrations/` généré à partir des modèles, appliqué automatiquement au démarrage du conteneur Docker/Render.
+- **Support PostgreSQL** : l'URL `DATABASE_URL` (ex. `postgresql://...`) est normalisée automatiquement pour le driver async (`asyncpg`), avec multi-workers uvicorn en production. SQLite reste le défaut local.
+- **Mode production locale** : `powershell -File scripts\run_prod.ps1` — migrations + build Next.js optimisé + backend uvicorn (1 worker si SQLite) + frontend `npm run start`.
+- **Sauvegarde automatique** : `powershell -File scripts\backup_db.ps1` — copie `platform.db` avec rotation (garde N sauvegardes par défaut).
+- **Onboarding self-service** : `POST /api/auth/register` crée un espace client (+ son équipe d'agents par défaut) et connecte automatiquement le nouvel administrateur. Formulaire dédié sur la page `/login`.
+- **Invitation de collaborateurs** : `GET/POST /api/users` (+ `/api/users/invite`, `PATCH /api/users/{id}`), mot de passe temporaire généré et renvoyé en mode console / envoyé par e-mail en mode SMTP. Onglet « Équipe & Accès » dans le dashboard.
+- **Mot de passe oublié** : `POST /api/auth/forgot-password` (jeton JWT court) + `POST /api/auth/reset-password`, UI intégrée au `/login`.
+- **Notifications e-mail** : service `EMAIL_BACKEND=console|smtp` (jetons affichés en démo / envoyés réellement via SMTP).
+- Tests backend portés à **21**.
 
 ### v0.2 — Authentification, sécurité & mémoire de conversation
 

@@ -27,7 +27,16 @@ def create_access_token(user_id: str) -> str:
     expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    payload = {"sub": user_id, "exp": expire}
+    payload = {"sub": user_id, "type": "access", "exp": expire}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_password_reset_token(user_id: str) -> str:
+    """Génère un jeton à usage unique (courte durée) pour la réinitialisation du mot de passe."""
+    expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES
+    )
+    payload = {"sub": user_id, "type": "password_reset", "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
