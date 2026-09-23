@@ -69,47 +69,22 @@ La suite couvre l'authentification, le contrôle d'accès (isolation par tenant)
 
 ---
 
-## Déploiement public (lien permanent pour CV / démo)
+## Partage public (lien temporaire de visualisation)
 
-Le projet est prêt à être déployé pour obtenir une URL **permanente** : backend FastAPI sur **Render** (gratuit) + frontend Next.js sur **Vercel** (gratuit). Fichiers fournis :
+Pour partager la démo sur le net (CV, démo client), un **lien public temporaire** est généré via un tunnel Cloudflare :
 
-- `backend/Dockerfile` + `backend/.dockerignore` — image du backend.
-- `backend/render.yaml` — blueprint Render (détection automatique du service).
-- `vercel.json` — indique à Vercel que le frontend est dans `frontend/`.
+```bash
+powershell -File scripts\start_public_link.ps1     # TTL par défaut : 2 h
+```
 
-### Étape 1 — Backend sur Render
+Le script ouvre un tunnel vers le backend + le frontend, masque les comptes de démo
+(`NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=false`) et coupe automatiquement le lien à l'expiration.
+Coupure manuelle : `powershell -File scripts\expire_public_link.ps1 -Seconds 0`.
 
-1. Poussez ce dépôt sur GitHub.
-2. Sur [render.com](https://render.com) : **New → Blueprint**, sélectionnez le dépôt.
-3. Render détecte `backend/render.yaml`, crée le service **agenthub-api** (plan free).
-   - Render génère automatiquement `SECRET_KEY` (sécurisé) et lance le service via le Dockerfile.
-4. Copiez l'URL du service (ex. `https://agenthub-api.onrender.com`).
+Il renvoie une **URL raccourcie** (ligne `SHORT=`) et l'heure d'expiration automatique.
 
-> Note : SQLite est stocké sur le disque éphémère du service. Les données sont réinitialisées aux valeurs de démo (`initial_data`) à chaque redémarrage/recyclage — parfait pour une démo.
-
-### Étape 2 — Frontend sur Vercel
-
-1. Sur [vercel.com](https://vercel.com) : **Add New → Project**, importez le même dépôt.
-2. Vercel détecte `vercel.json` et build automatiquement `frontend/`.
-3. Dans **Settings → Environment Variables**, ajoutez :
-   - `NEXT_PUBLIC_API_URL` = `https://<votre-backend>.onrender.com/api`
-   - `NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS` = `true` (affiche les liens d'accès démo sur le login)
-4. **Deploy**. L'URL (ex. `https://agenthub.vercel.app`) est votre lien permanent à mettre sur le CV.
-
-### URL démo sur le site
-
-Page `/login` : le bloc « Accès démo rapide » offre 2 liens cliquables qui pré-remplissent les champs :
-
-| Accès | Email | Mot de passe |
-|---|---|---|
-| Super Admin | `admin@agenthub.local` | `admin123` |
-| Espace Client (Boulangerie) | `contact@boulangerie.com` | `client123` |
-
-### Redéployer après une modification
-
-Poussez sur GitHub : Render et Vercel redéploient automatiquement (branch de production).
-
-CORS : le backend accepte les origines `*.vercel.app` et `*.trycloudflare.com` (regex `BACKEND_CORS_ORIGIN_REGEX` dans `backend/app/core/config.py`, surchargeable par variable d'environnement).
+CORS : le backend accepte les origines de tunnel `https://*.trycloudflare.com`
+(regex `BACKEND_CORS_ORIGIN_REGEX` dans `backend/app/core/config.py`, surchargeable via `.env`).
 
 ---
 
@@ -118,7 +93,7 @@ CORS : le backend accepte les origines `*.vercel.app` et `*.trycloudflare.com` (
 ### v0.3 — Fondations production (Sécurité, Migrations, Onboarding)
 
 - **Secrets déportés dans `.env`** : `SECRET_KEY`, mots de passe seedés, CORS, SMTP. Fichier `backend/.env.example` versionné (`.env` réel ignoré par git).
-- **Migrations de schéma avec Alembic** : `migrations/` généré à partir des modèles, appliqué automatiquement au démarrage du conteneur Docker/Render.
+- **Migrations de schéma avec Alembic** : `migrations/` généré à partir des modèles, appliqué via `alembic upgrade head`.
 - **Support PostgreSQL** : l'URL `DATABASE_URL` (ex. `postgresql://...`) est normalisée automatiquement pour le driver async (`asyncpg`), avec multi-workers uvicorn en production. SQLite reste le défaut local.
 - **Mode production locale** : `powershell -File scripts\run_prod.ps1` — migrations + build Next.js optimisé + backend uvicorn (1 worker si SQLite) + frontend `npm run start`.
 - **Sauvegarde automatique** : `powershell -File scripts\backup_db.ps1` — copie `platform.db` avec rotation (garde N sauvegardes par défaut).

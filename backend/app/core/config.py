@@ -39,14 +39,14 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
     
-    # CORS (frontend Next.js en local + tunnels Cloudflare + déploiement Vercel)
+    # CORS (frontend Next.js en local + tunnels Cloudflare de partage public)
     BACKEND_CORS_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
     ]
-    BACKEND_CORS_ORIGIN_REGEX: str = r"https://(.*\.trycloudflare\.com|.*\.vercel\.app)"
+    BACKEND_CORS_ORIGIN_REGEX: str = r"https://.*\.trycloudflare\.com"
 
     @property
     def is_production(self) -> bool:
