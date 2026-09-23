@@ -13,11 +13,13 @@ interface LoginScreenProps {
 const DEMO_ACCOUNTS = [
   {
     label: "Super Admin",
+    hint: "Vue plateforme (tous les espaces)",
     email: "admin@agenthub.local",
     password: "admin123",
   },
   {
-    label: "Espace Client (Boulangerie)",
+    label: "Espace Client",
+    hint: "Démo Boulangerie Artisanale & Co",
     email: "contact@boulangerie.com",
     password: "client123",
   },
@@ -120,17 +122,17 @@ export default function LoginScreen({ onLogin, loading, error, showDemoAccounts 
               </button>
             </form>
 
-            {/* Comptes de démonstration */}
+            {/* Accès rapide de démonstration */}
             {showDemoAccounts && (
               <div className="pt-1">
-                <div className="flex items-center gap-2 mb-2.5">
+                <div className="flex items-center gap-2 mb-3">
                   <div className="h-px flex-1 bg-slate-800" />
                   <span className="text-[10px] uppercase tracking-wider text-slate-500">
-                    Comptes de démonstration
+                    Accès démo rapide
                   </span>
                   <div className="h-px flex-1 bg-slate-800" />
                 </div>
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
                   {DEMO_ACCOUNTS.map((acc) => (
                     <button
                       key={acc.email}
@@ -140,22 +142,27 @@ export default function LoginScreen({ onLogin, loading, error, showDemoAccounts 
                         setEmail(acc.email);
                         setPassword(acc.password);
                       }}
-                      className="w-full text-left text-xs bg-slate-950/80 hover:bg-indigo-950/40 p-2.5 rounded-lg border border-slate-800 hover:border-indigo-500/40 text-slate-300 transition disabled:opacity-50"
+                      className="group text-left bg-slate-950/80 hover:bg-indigo-950/40 p-3 rounded-lg border border-slate-800 hover:border-indigo-500/40 transition disabled:opacity-50"
                     >
-                      <span className="font-semibold text-indigo-300">{acc.label}</span>
-                      <span className="block text-slate-500 mt-0.5 truncate">
-                        {acc.email} / {acc.password}
+                      <span className="block text-xs font-semibold text-indigo-300 group-hover:text-indigo-200">
+                        {acc.label}
+                      </span>
+                      <span className="block text-[10px] text-slate-500 mt-0.5 leading-snug">
+                        {acc.hint}
                       </span>
                     </button>
                   ))}
                 </div>
+                <p className="text-[10px] text-slate-600 mt-2 text-center">
+                  Les identifiants sont pré-remplis, cliquez ensuite sur «&nbsp;Se connecter&nbsp;».
+                </p>
               </div>
             )}
           </div>
 
           <p className="text-center text-xs text-slate-600 mt-6 flex items-center justify-center gap-1.5">
             <RefreshCw className="w-3 h-3" />
-            Backend requis sur http://127.0.0.1:8000
+            Backend requis sur {process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, "") || "http://127.0.0.1:8000"}
           </p>
         </div>
       </div>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: agenthub-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PROJECT_NAME
+        value: SynergyAI - AgentHub API
+      - key: BACKEND_CORS_ORIGIN_REGEX
+        value: "https://(.*\\.trycloudflare\\.com|.*\\.vercel\\.app)"
