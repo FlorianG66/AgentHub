@@ -124,3 +124,13 @@ CORS : le backend accepte les origines de tunnel `https://*.trycloudflare.com`
 - **Données & tests**
   - Comptes de démonstration seedés automatiquement (`initial_data`).
   - Tests API étendus : authentification, contrôle d'accès par tenant et parcours fonctionnels mis à jour avec headers d'authentification.
+
+---
+
+## Licence
+
+Code source publié pour consultation. **Tous droits réservés** — aucune licence
+ouverte n'est accordée : la reproduction, la modification et la réutilisation du
+code, en tout ou partie, sont interdites sans autorisation écrite préalable.
+
+Projet en cours de développement, non achevé.
